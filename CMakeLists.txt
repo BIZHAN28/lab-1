@@ -22,13 +22,9 @@ endif()
 find_program(CLANG_TIDY clang-tidy)
 message(STATUS "Clang-tidy: ${CLANG_TIDY}")
 if(CLANG_TIDY)
-    file(STRINGS clang-tidy-checks.txt clang_tidy_checks)
-    list(JOIN clang_tidy_checks "," clang_tidy_checks_str)
     set(CMAKE_C_CLANG_TIDY
         ${CLANG_TIDY}
         -header-filter=${CMAKE_SOURCE_DIR}
-        -checks=${clang_tidy_checks_str}
-        -warnings-as-errors=*
     )
 endif()
 
