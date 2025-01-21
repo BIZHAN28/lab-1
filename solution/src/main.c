@@ -1,7 +1,12 @@
-#include <stdio.h>
+#include "elf64_loader.h"
 
-int main( int argc, char** argv ) {
-    (void) argc; (void) argv; // supress 'unused parameters' warning
+int main(int argc, char **argv) {
+    if (argc != 3) {
+        return EINVAL;
+    }
 
-    return 0;
+    const char *file = argv[1];
+    const char *section_name = argv[2];
+
+    return load_elf64(file, section_name);
 }
