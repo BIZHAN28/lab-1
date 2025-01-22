@@ -52,6 +52,8 @@ int load_program_segments(int fd, Elf64_Ehdr *ehdr) {
                                 (phdr.p_flags & PF_W ? PROT_WRITE : 0), 
                                 MAP_PRIVATE | MAP_FIXED, fd, phdr.p_offset);
         if (mapped_mem == MAP_FAILED) {
+            // Debugging the mmap error
+            write(2, "mmap failed\n", 12); // Writing directly to stderr
             return EIO;
         }
     }
@@ -143,15 +145,13 @@ int main(int argc, char *argv[]) {
         close(fd);
         return err;
     }
-	if (!(target_shdr.sh_flags & SHF_EXECINSTR)) {
+
+    if (!(target_shdr.sh_flags & SHF_EXECINSTR)) {
         close(fd);
-        return EINVAL; 
+        return EINVAL;
     }
+
     transfer_control(target_shdr.sh_addr);
-	
     close(fd);
-
-
     return 0;
 }
-
