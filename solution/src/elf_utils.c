@@ -45,7 +45,7 @@ int load_program_headers(int fd, const Elf64_Ehdr *header) {
             }
 
             if (lseek(fd, phdr.p_offset, SEEK_SET) < 0 || 
-                read(fd, mem + (phdr.p_vaddr & 0xFFF), phdr.p_filesz) != phdr.p_filesz) {
+                read(fd, (char *)mem + (phdr.p_vaddr & 0xFFF), phdr.p_filesz) != phdr.p_filesz) {
                 return EIO;
             }
 
