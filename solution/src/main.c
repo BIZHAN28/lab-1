@@ -58,10 +58,17 @@ int load_program_segments(int fd, Elf64_Ehdr *ehdr) {
         if (mapped_mem == MAP_FAILED) {
             return EIO;
         }
+
+        // Check if the entry point is within the loaded segment
+        if (ehdr->e_entry >= aligned_vaddr && ehdr->e_entry < aligned_vaddr + aligned_mem_size) {
+            // The entry point is within this segment, so it's safely mapped
+            break;
+        }
     }
 
     return 0;
 }
+
 
 // Function to find the section header for the given section name
 int find_section_header(int fd, Elf64_Ehdr *ehdr, const char *section_name, Elf64_Shdr *shdr_out) {
