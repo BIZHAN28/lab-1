@@ -147,10 +147,14 @@ int main(int argc, char *argv[]) {
         close(fd);
         return EINVAL;
     }
-	    Elf64_Addr aligned_vaddr = target_shdr.sh_addr & ~(PAGE_SIZE - 1);
-    void *mapped_mem = mmap((void *)aligned_vaddr, target_shdr.sh_size, 
-                            PROT_READ | PROT_EXEC, MAP_PRIVATE | MAP_FIXED, fd, target_shdr.sh_offset);
-    if (mapped_mem == MAP_FAILED) {
+    if (lseek(fd, target_shdr.sh_offset, SEEK_SET) == -1) {
+        close(fd);
+        return EIO;
+    }
+
+    void *section_data = mmap((void *)target_shdr.sh_addr, target_shdr.sh_size,
+                              PROT_READ | PROT_EXEC, MAP_PRIVATE | MAP_FIXED, fd, target_shdr.sh_offset);
+    if (section_data == MAP_FAILED) {
         close(fd);
         return EIO;
     }
