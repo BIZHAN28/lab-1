@@ -45,9 +45,9 @@ int load_program_segments(int fd, Elf64_Ehdr *ehdr) {
         }
 
         // Adjust the memory size if needed (page size alignment)
-        Elf64_Xword aligned_mem_size = (phdr.p_memsz + (PAGE_SIZE - 1)) & ~(PAGE_SIZE - 1);
-        Elf64_Addr aligned_vaddr = phdr.p_vaddr & ~(PAGE_SIZE - 1);
-        Elf64_Off aligned_offset = phdr.p_offset & ~(PAGE_SIZE - 1);
+		Elf64_Addr aligned_vaddr = phdr.p_vaddr - phdr.p_vaddr % sysconf(_SC_PAGE_SIZE);
+        Elf64_Xword aligned_mem_size = (phdr.p_memsz + phdr.p_vaddr - aligned_vaddr);
+        Elf64_Off aligned_offset = phdr.p_offset - phdr.p_offset % sysconf(_SC_PAGE_SIZE);
 
         void *mapped_mem = mmap((void *)aligned_vaddr, aligned_mem_size,
                                 (phdr.p_flags & PF_X ? PROT_EXEC : 0) | 
