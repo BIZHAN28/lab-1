@@ -58,17 +58,10 @@ int load_program_segments(int fd, Elf64_Ehdr *ehdr) {
         if (mapped_mem == MAP_FAILED) {
             return EIO;
         }
-
-        // Check if the entry point is within the loaded segment
-        if (ehdr->e_entry >= aligned_vaddr && ehdr->e_entry < aligned_vaddr + aligned_mem_size) {
-            // The entry point is within this segment, so it's safely mapped
-            break;
-        }
     }
 
     return 0;
 }
-
 
 // Function to find the section header for the given section name
 int find_section_header(int fd, Elf64_Ehdr *ehdr, const char *section_name, Elf64_Shdr *shdr_out) {
@@ -117,7 +110,10 @@ int find_section_header(int fd, Elf64_Ehdr *ehdr, const char *section_name, Elf6
 
 // Function to transfer control to the starting address of the section
 void transfer_control(Elf64_Addr entry_point) {
-    void (*entry_func)(void) = (void (*)(void)) entry_point;
+   Elf64_Addr aligned_entry_point = entry_point & ~(PAGE_SIZE - 1);
+    
+    // Cast the address to a function pointer and call it
+    void (*entry_func)(void) = (void (*)(void))aligned_entry_point;
     entry_func();
 }
 
