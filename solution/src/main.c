@@ -5,13 +5,10 @@
 #include <sys/stat.h>
 #include <elf.h>
 #include <errno.h>
-#include <string.h>
-#include <stdlib.h>
 
 #define PAGE_SIZE 0x1000
 
-// Function to read the ELF64 header
-int read_elf_header(int fd, Elf64_Ehdr *ehdr) {
+static int read_elf_header(int fd, Elf64_Ehdr *ehdr) {
     if (lseek(fd, 0, SEEK_SET) == -1) {
         return EIO;
     }
@@ -28,33 +25,38 @@ int read_elf_header(int fd, Elf64_Ehdr *ehdr) {
     return 0;
 }
 
-// Function to load program segments into memory
-int load_program_segments(int fd, Elf64_Ehdr *ehdr) {
+static int load_program_segments(int fd, Elf64_Ehdr *ehdr) {
     Elf64_Phdr phdr;
-    for (int i = 0; i < ehdr->e_phnum; i++) {
+    int i;
+    for (i = 0; i < ehdr->e_phnum; i++) {
         if (lseek(fd, ehdr->e_phoff + i * sizeof(Elf64_Phdr), SEEK_SET) == -1) {
             return EIO;
         }
 
-        if (read(fd, &phdr, sizeof(Elf64_Phdr)) != sizeof(Elf64_Phdr)) {
+        ssize_t bytes_read = read(fd, &phdr, sizeof(Elf64_Phdr));
+        if (bytes_read != sizeof(Elf64_Phdr)) {
             return EIO;
         }
 
         if (phdr.p_type != PT_LOAD) {
-            continue; // Only load PT_LOAD segments
+            continue;
         }
 
-        // Adjust the memory size if needed (page size alignment)
-		Elf64_Addr aligned_vaddr = phdr.p_vaddr - phdr.p_vaddr % sysconf(_SC_PAGE_SIZE);
-        Elf64_Xword aligned_mem_size = (phdr.p_memsz + phdr.p_vaddr - aligned_vaddr);
-        Elf64_Off aligned_offset = phdr.p_offset - phdr.p_offset % sysconf(_SC_PAGE_SIZE);
+        long page_size = sysconf(_SC_PAGE_SIZE);
+        if (page_size <= 0) {
+            return EIO;
+        }
+
+        Elf64_Addr aligned_vaddr = phdr.p_vaddr & ~(page_size - 1);
+        Elf64_Off aligned_offset = phdr.p_offset & ~(page_size - 1);
+        Elf64_Xword aligned_mem_size = phdr.p_memsz + (phdr.p_vaddr - aligned_vaddr);
 
         void *mapped_mem = mmap((void *)aligned_vaddr, aligned_mem_size,
-                                (phdr.p_flags & PF_X ? PROT_EXEC : 0) | 
-                                (phdr.p_flags & PF_R ? PROT_READ : 0) | 
+                                (phdr.p_flags & PF_X ? PROT_EXEC : 0) |
+                                (phdr.p_flags & PF_R ? PROT_READ : 0) |
                                 (phdr.p_flags & PF_W ? PROT_WRITE : 0),
-                                MAP_PRIVATE | MAP_FIXED | MAP_FIXED_NOREPLACE, fd, (off_t)aligned_offset);
-        
+                                MAP_PRIVATE | MAP_FIXED, fd, aligned_offset);
+
         if (mapped_mem == MAP_FAILED) {
             return EIO;
         }
@@ -63,53 +65,58 @@ int load_program_segments(int fd, Elf64_Ehdr *ehdr) {
     return 0;
 }
 
-// Function to find the section header for the given section name
-int find_section_header(int fd, Elf64_Ehdr *ehdr, const char *section_name, Elf64_Shdr *shdr_out) {
+static int find_section_header(int fd, Elf64_Ehdr *ehdr, const char *section_name, Elf64_Shdr *shdr_out) {
     Elf64_Shdr shdr;
     Elf64_Shdr shstrtab_hdr;
+    char shstrtab[PAGE_SIZE];
+    int i;
+
     if (lseek(fd, ehdr->e_shoff + ehdr->e_shstrndx * sizeof(Elf64_Shdr), SEEK_SET) == -1) {
         return EIO;
     }
 
-    if (read(fd, &shstrtab_hdr, sizeof(Elf64_Shdr)) != sizeof(Elf64_Shdr)) {
+    ssize_t bytes_read = read(fd, &shstrtab_hdr, sizeof(Elf64_Shdr));
+    if (bytes_read != sizeof(Elf64_Shdr)) {
         return EIO;
     }
 
-    char *shstrtab = malloc(shstrtab_hdr.sh_size);
+    if (shstrtab_hdr.sh_size > PAGE_SIZE) {
+        return EIO;
+    }
+
     if (lseek(fd, shstrtab_hdr.sh_offset, SEEK_SET) == -1) {
-        free(shstrtab);
         return EIO;
     }
 
-    if (read(fd, shstrtab, shstrtab_hdr.sh_size) != shstrtab_hdr.sh_size) {
-        free(shstrtab);
+    bytes_read = read(fd, shstrtab, shstrtab_hdr.sh_size);
+    if (bytes_read != shstrtab_hdr.sh_size) {
         return EIO;
     }
 
-    for (int i = 0; i < ehdr->e_shnum; i++) {
+    for (i = 0; i < ehdr->e_shnum; i++) {
         if (lseek(fd, ehdr->e_shoff + i * sizeof(Elf64_Shdr), SEEK_SET) == -1) {
-            free(shstrtab);
             return EIO;
         }
 
-        if (read(fd, &shdr, sizeof(Elf64_Shdr)) != sizeof(Elf64_Shdr)) {
-            free(shstrtab);
+        bytes_read = read(fd, &shdr, sizeof(Elf64_Shdr));
+        if (bytes_read != sizeof(Elf64_Shdr)) {
             return EIO;
         }
 
-        if (strcmp(&shstrtab[shdr.sh_name], section_name) == 0) {
+        int j = 0;
+        while (section_name[j] != '\0' && shstrtab[shdr.sh_name + j] == section_name[j]) {
+            j++;
+        }
+
+        if (section_name[j] == '\0' && shstrtab[shdr.sh_name + j] == '\0') {
             *shdr_out = shdr;
-            free(shstrtab);
             return 0;
         }
     }
 
-    free(shstrtab);
     return EINVAL;
 }
 
-
-// Main loader function
 int main(int argc, char *argv[]) {
     if (argc != 3) {
         return EINVAL;
@@ -142,20 +149,20 @@ int main(int argc, char *argv[]) {
         close(fd);
         return err;
     }
-	if (!(target_shdr.sh_flags & SHF_EXECINSTR)) {
+
+    if (!(target_shdr.sh_flags & SHF_EXECINSTR)) {
         close(fd);
-        return EINVAL; 
+        return EINVAL;
     }
 
-	void (*entry_func)(void) = (void (*)(void)) target_shdr.sh_addr;
-	if (entry_func == NULL) {
-		close(fd);
-		return EINVAL;
-	}
+    void (*entry_func)(void) = (void (*)(void)) target_shdr.sh_addr;
+    if (entry_func == NULL) {
+        close(fd);
+        return EINVAL;
+    }
+
     entry_func();
+
     close(fd);
-
-
     return 0;
 }
-
