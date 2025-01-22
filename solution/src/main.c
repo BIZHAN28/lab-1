@@ -108,16 +108,6 @@ int find_section_header(int fd, Elf64_Ehdr *ehdr, const char *section_name, Elf6
     return EINVAL;
 }
 
-// Function to transfer control to the starting address of the section
-void transfer_control(Elf64_Addr entry_point) {
-	
-    void (*entry_func)(void) = (void (*)(void)) entry_point;
-	if (entry_point == NULL) {
-		return EINVAL;
-	}
-    entry_func();
-	
-}
 
 // Main loader function
 int main(int argc, char *argv[]) {
@@ -156,8 +146,9 @@ int main(int argc, char *argv[]) {
         close(fd);
         return EINVAL; 
     }
-    transfer_control(target_shdr.sh_addr);
-	
+
+	void (*entry_func)(void) = (void (*)(void)) target_shdr.sh_addr;
+    entry_func();
     close(fd);
 
 
