@@ -1,3 +1,10 @@
+
+#include "elf_loader.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <errno.h>
+#include <unistd.h>
+
 int main(int argc, char *argv[]) {
     if (argc != 3) {
         error("Usage: ./elf64-loader <source-elf64-file> <section-name>\n", EINVAL);
