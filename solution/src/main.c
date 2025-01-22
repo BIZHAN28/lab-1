@@ -7,7 +7,6 @@
 #include <errno.h>
 #include <string.h>
 #include <stdlib.h>
-#include <stdio.h>
 
 #define PAGE_SIZE 0x1000
 
@@ -57,10 +56,8 @@ int load_program_segments(int fd, Elf64_Ehdr *ehdr) {
                                 MAP_PRIVATE | MAP_FIXED, fd, aligned_offset);
         
         if (mapped_mem == MAP_FAILED) {
-            perror("mmap failed");
             return EIO;
         }
-        printf("Mapped segment at address: %p\n", mapped_mem);
     }
 
     return 0;
@@ -113,9 +110,11 @@ int find_section_header(int fd, Elf64_Ehdr *ehdr, const char *section_name, Elf6
 
 // Function to transfer control to the starting address of the section
 void transfer_control(Elf64_Addr entry_point) {
-    void (*entry_func)(void) = (void (*)(void)) entry_point;
-    printf("Transferring control to: %p\n", entry_point);
-    entry_func();  // This will cause the segmentation fault if the address is not correct
+   Elf64_Addr aligned_entry_point = entry_point & ~(PAGE_SIZE - 1);
+    
+    // Cast the address to a function pointer and call it
+    void (*entry_func)(void) = (void (*)(void))aligned_entry_point;
+    entry_func();
 }
 
 // Main loader function
@@ -129,7 +128,6 @@ int main(int argc, char *argv[]) {
 
     int fd = open(file_name, O_RDONLY);
     if (fd == -1) {
-        perror("File open failed");
         return ENOENT;
     }
 
@@ -152,14 +150,15 @@ int main(int argc, char *argv[]) {
         close(fd);
         return err;
     }
-
-    if (!(target_shdr.sh_flags & SHF_EXECINSTR)) {
+	if (!(target_shdr.sh_flags & SHF_EXECINSTR)) {
         close(fd);
         return EINVAL; 
     }
-
     transfer_control(target_shdr.sh_addr);
-    
+	
     close(fd);
+
+
     return 0;
 }
+
