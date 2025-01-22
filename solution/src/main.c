@@ -142,20 +142,25 @@ int main(int argc, char *argv[]) {
         close(fd);
         return err;
     }
-	if (!(target_shdr.sh_flags & SHF_EXECINSTR)) {
+
+    // Ensure section is executable
+    if (!(target_shdr.sh_flags & SHF_EXECINSTR)) {
         close(fd);
         return EINVAL; 
     }
 
-	void (*entry_func)(void) = (void (*)(void)) target_shdr.sh_addr;
-	if (entry_func == NULL) {
-		close(fd);
-		return EINVAL;
-	}
-    entry_func();
-    close(fd);
+    void (*entry_func)(void) = (void (*)(void)) target_shdr.sh_addr;
 
+    // Ensure entry point is valid
+    if (entry_func == NULL) {
+        close(fd);
+        return EINVAL;
+    }
+
+    // Call the entry point function
+    entry_func();
+
+    close(fd);
 
     return 0;
 }
-
