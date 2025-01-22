@@ -112,7 +112,11 @@ int find_section_header(int fd, Elf64_Ehdr *ehdr, const char *section_name, Elf6
 void transfer_control(Elf64_Addr entry_point) {
 	
     void (*entry_func)(void) = (void (*)(void)) entry_point;
+	if (entry_point == NULL) {
+		return EINVAL;
+	}
     entry_func();
+	
 }
 
 // Main loader function
