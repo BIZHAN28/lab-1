@@ -44,22 +44,32 @@ int load_program_segments(int fd, Elf64_Ehdr *ehdr) {
             continue; // Only load PT_LOAD segments
         }
 
-        // Adjust the memory size if needed (page size alignment)
+        // Align memory size and adjust the start address if needed
         Elf64_Xword aligned_mem_size = (phdr.p_memsz + (PAGE_SIZE - 1)) & ~(PAGE_SIZE - 1);
-        void *mapped_mem = mmap((void *)phdr.p_vaddr, aligned_mem_size, 
+        void *mapped_mem = mmap(NULL, aligned_mem_size, 
                                 (phdr.p_flags & PF_X ? PROT_EXEC : 0) | 
                                 (phdr.p_flags & PF_R ? PROT_READ : 0) | 
                                 (phdr.p_flags & PF_W ? PROT_WRITE : 0), 
-                                MAP_PRIVATE | MAP_FIXED, fd, phdr.p_offset);
+                                MAP_PRIVATE, fd, phdr.p_offset);
+
         if (mapped_mem == MAP_FAILED) {
-            // Debugging the mmap error
-            write(2, "mmap failed\n", 12); // Writing directly to stderr
+            // Print the error code for debugging
+            write(STDERR_FILENO, "mmap failed: ", 12);
+            char error_msg[256];
+            snprintf(error_msg, sizeof(error_msg), "%s\n", strerror(errno));
+            write(STDERR_FILENO, error_msg, strlen(error_msg));
             return EIO;
+        }
+
+        // Ensure the segment is properly zeroed if needed
+        if (phdr.p_memsz > phdr.p_filesz) {
+            memset(mapped_mem + phdr.p_filesz, 0, phdr.p_memsz - phdr.p_filesz);
         }
     }
 
     return 0;
 }
+
 
 // Function to find the section header for the given section name
 int find_section_header(int fd, Elf64_Ehdr *ehdr, const char *section_name, Elf64_Shdr *shdr_out) {
