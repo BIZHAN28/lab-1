@@ -111,7 +111,8 @@ int find_section_header(int fd, Elf64_Ehdr *ehdr, const char *section_name, Elf6
 
 // Function to transfer control to the starting address of the section
 void transfer_control(Elf64_Addr entry_point) {
-    void (*entry_func)(void) = (void (*)(void)) entry_point;
+    Elf64_Addr aligned_entry_point = entry_point & ~(PAGE_SIZE - 1);
+    void (*entry_func)(void) = (void (*)(void))aligned_entry_point;
     entry_func();
 }
 
