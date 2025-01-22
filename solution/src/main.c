@@ -145,18 +145,7 @@ int main(int argc, char *argv[]) {
     }
 	if (!(target_shdr.sh_flags & SHF_EXECINSTR)) {
         close(fd);
-        return EINVAL;
-    }
-    if (lseek(fd, target_shdr.sh_offset, SEEK_SET) == -1) {
-        close(fd);
-        return EIO;
-    }
-
-    void *section_data = mmap((void *)target_shdr.sh_addr, target_shdr.sh_size,
-                              PROT_READ | PROT_EXEC, MAP_PRIVATE | MAP_FIXED, fd, target_shdr.sh_offset);
-    if (section_data == MAP_FAILED) {
-        close(fd);
-        return EIO;
+        return EINVAL; 
     }
     transfer_control(target_shdr.sh_addr);
 	
