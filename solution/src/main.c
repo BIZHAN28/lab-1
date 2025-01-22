@@ -53,7 +53,7 @@ int load_program_segments(int fd, Elf64_Ehdr *ehdr) {
                                 (phdr.p_flags & PF_X ? PROT_EXEC : 0) | 
                                 (phdr.p_flags & PF_R ? PROT_READ : 0) | 
                                 (phdr.p_flags & PF_W ? PROT_WRITE : 0),
-                                MAP_PRIVATE | MAP_FIXED, fd, aligned_offset);
+                                MAP_PRIVATE | MAP_FIXED | MAP_FIXED_NOREPLACE, fd, aligned_offset);
         
         if (mapped_mem == MAP_FAILED) {
             return EIO;
@@ -142,25 +142,20 @@ int main(int argc, char *argv[]) {
         close(fd);
         return err;
     }
-
-    // Ensure section is executable
-    if (!(target_shdr.sh_flags & SHF_EXECINSTR)) {
+	if (!(target_shdr.sh_flags & SHF_EXECINSTR)) {
         close(fd);
         return EINVAL; 
     }
 
-    void (*entry_func)(void) = (void (*)(void)) target_shdr.sh_addr;
-
-    // Ensure entry point is valid
-    if (entry_func == NULL) {
-        close(fd);
-        return EINVAL;
-    }
-
-    // Call the entry point function
+	void (*entry_func)(void) = (void (*)(void)) target_shdr.sh_addr;
+	if (entry_func == NULL) {
+		close(fd);
+		return EINVAL;
+	}
     entry_func();
-
     close(fd);
+
 
     return 0;
 }
+
