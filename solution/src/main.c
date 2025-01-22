@@ -148,6 +148,10 @@ int main(int argc, char *argv[]) {
     }
 
 	void (*entry_func)(void) = (void (*)(void)) target_shdr.sh_addr;
+	if (entry_func == NULL) {
+		close(fd);
+		return EINVAL;
+	}
     entry_func();
     close(fd);
 
