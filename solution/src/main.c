@@ -50,7 +50,7 @@ int load_program_segments(int fd, Elf64_Ehdr *ehdr) {
                                 (phdr.p_flags & PF_X ? PROT_EXEC : 0) | 
                                 (phdr.p_flags & PF_R ? PROT_READ : 0) | 
                                 (phdr.p_flags & PF_W ? PROT_WRITE : 0), 
-                                MAP_PRIVATE | MAP_FIXED, fd, phdr.p_offset);
+                                MAP_PRIVATE | MAP_FIXED | MAP_FIXED_NOREPLACE, fd, phdr.p_offset);
         if (mapped_mem == MAP_FAILED) {
             return EIO;
         }
