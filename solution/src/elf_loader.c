@@ -1,155 +1,161 @@
-// File: solution/src/elf_loader.c
-// Header inclusion
-#include <elf.h>
-#include <fcntl.h>
-#include <sys/mman.h>
-#include <unistd.h>
-#include <errno.h>
-#include <stdint.h>
-#include <stdlib.h>
-#include <sys/stat.h>
-#include <stdio.h>
-#include <string.h>
-#include "elf_loader.h"
+#include "../include/elf_loader.h"
 
-#define PAGE_SIZE 0x1000
-#define PAGE_ALIGN_DOWN(addr) ((addr) & ~(PAGE_SIZE - 1))
-#define PAGE_ALIGN_UP(addr) (((addr) + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1))
-
-// Error output helper
-void error(const char *msg, int code) {
+/* Prints error messages to stderr and exits with the given code */
+void print_error(const char *msg, int code) {
     write(2, msg, strlen(msg));
+    write(2, "\n", 1);
     exit(code);
 }
 
-// Function to read data from file descriptor
-ssize_t read_data(int fd, void *buf, size_t size, off_t offset) {
-    if (lseek(fd, offset, SEEK_SET) == (off_t)-1) {
-        return -1;
+/* Validates ELF header */
+int validate_elf_header(const Elf64_Ehdr *ehdr) {
+    if (ehdr->e_ident[EI_MAG0] != ELFMAG0 ||
+        ehdr->e_ident[EI_MAG1] != ELFMAG1 ||
+        ehdr->e_ident[EI_MAG2] != ELFMAG2 ||
+        ehdr->e_ident[EI_MAG3] != ELFMAG3) {
+        return 0; // Invalid ELF magic
     }
-    return read(fd, buf, size);
+    if (ehdr->e_ident[EI_CLASS] != ELFCLASS64) {
+        return 0; // Not an ELF64 file
+    }
+    return 1;
 }
 
-// Load program headers into memory
-void load_segments(int fd, const Elf64_Ehdr *ehdr) {
-    Elf64_Phdr phdr;
+/* Loads program segments (PT_LOAD) into memory */
+int load_program_segments(int fd, const Elf64_Ehdr *ehdr) {
+    if (lseek(fd, ehdr->e_phoff, SEEK_SET) == -1) {
+        print_error("Failed to seek program headers", EIO);
+    }
+
     for (int i = 0; i < ehdr->e_phnum; i++) {
-        if (read_data(fd, &phdr, sizeof(phdr), ehdr->e_phoff + i * sizeof(phdr)) != sizeof(phdr)) {
-            error("Failed to read program header\n", EIO);
+        Elf64_Phdr phdr;
+        if (read(fd, &phdr, sizeof(phdr)) != sizeof(phdr)) {
+            print_error("Failed to read program header", EIO);
         }
 
-        if (phdr.p_type != PT_LOAD) {
-            continue;
-        }
+        if (phdr.p_type == PT_LOAD) {
+            size_t mem_size = ALIGN_UP(phdr.p_memsz);
+            size_t file_size = phdr.p_filesz;
 
-        // Align memory range
-        off_t file_offset = PAGE_ALIGN_DOWN(phdr.p_offset);
-        size_t mem_size = PAGE_ALIGN_UP(phdr.p_vaddr + phdr.p_memsz) - PAGE_ALIGN_DOWN(phdr.p_vaddr);
-
-        // Map memory
-        void *mapped = mmap((void *)PAGE_ALIGN_DOWN(phdr.p_vaddr), mem_size, PROT_READ | PROT_WRITE | PROT_EXEC, 
-                            MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-
-        if (mapped == MAP_FAILED) {
-            error("Failed to allocate memory for segment\n", ENOMEM);
-        }
-
-        // Load segment data
-        if (read_data(fd, mapped, phdr.p_filesz, file_offset) != (ssize_t)phdr.p_filesz) {
-            error("Failed to load segment data\n", EIO);
-        }
-
-        // Set memory protection
-        int prot = 0;
-        if (phdr.p_flags & PF_R) prot |= PROT_READ;
-        if (phdr.p_flags & PF_W) prot |= PROT_WRITE;
-        if (phdr.p_flags & PF_X) prot |= PROT_EXEC;
-        if (mprotect(mapped, mem_size, prot) != 0) {
-            error("Failed to set memory protection\n", EIO);
-        }
-    }
-}
-
-// Locate and validate the section
-Elf64_Addr locate_section(int fd, const Elf64_Ehdr *ehdr, const char *section_name) {
-    Elf64_Shdr shdr;
-    char *strtab;
-
-    // Read section string table
-    if (read_data(fd, &shdr, sizeof(shdr), ehdr->e_shoff + ehdr->e_shstrndx * sizeof(shdr)) != sizeof(shdr)) {
-        error("Failed to read section header\n", EIO);
-    }
-
-    strtab = malloc(shdr.sh_size);
-    if (!strtab) {
-        error("Failed to allocate memory for string table\n", ENOMEM);
-    }
-
-    if (read_data(fd, strtab, shdr.sh_size, shdr.sh_offset) != (ssize_t)shdr.sh_size) {
-        error("Failed to read string table\n", EIO);
-    }
-
-    // Find the section
-    for (int i = 0; i < ehdr->e_shnum; i++) {
-        if (read_data(fd, &shdr, sizeof(shdr), ehdr->e_shoff + i * sizeof(shdr)) != sizeof(shdr)) {
-            free(strtab);
-            error("Failed to read section header\n", EIO);
-        }
-
-        if (strcmp(&strtab[shdr.sh_name], section_name) == 0) {
-            if (!(shdr.sh_flags & SHF_EXECINSTR)) {
-                free(strtab);
-                error("Section is not executable\n", EINVAL);
+            void *mapped = mmap((void *)ALIGN_DOWN(phdr.p_vaddr),
+                                mem_size,
+                                PROT_READ | PROT_WRITE | PROT_EXEC,
+                                MAP_PRIVATE | MAP_ANONYMOUS,
+                                -1,
+                                0);
+            if (mapped == MAP_FAILED) {
+                print_error("Memory mapping failed", EIO);
             }
-            free(strtab);
-            return shdr.sh_addr;
+
+            if (lseek(fd, phdr.p_offset, SEEK_SET) == -1) {
+                print_error("Failed to seek to segment data", EIO);
+            }
+
+            if (read(fd, mapped, file_size) != file_size) {
+                print_error("Failed to read segment data", EIO);
+            }
+
+            if (mprotect(mapped, mem_size, phdr.p_flags & (PROT_READ | PROT_WRITE | PROT_EXEC)) == -1) {
+                print_error("Failed to set memory protections", EIO);
+            }
         }
     }
 
-    free(strtab);
-    error("Section not found\n", EINVAL);
-    return 0; // Should never reach here
+    return 0;
 }
 
-// Main function
+/* Finds and validates the section */
+void *find_section(int fd, const Elf64_Ehdr *ehdr, const char *section_name) {
+    if (lseek(fd, ehdr->e_shoff, SEEK_SET) == -1) {
+        print_error("Failed to seek section headers", EIO);
+    }
+
+    Elf64_Shdr shdr;
+    Elf64_Shdr shstrtab_hdr;
+
+    // Seek to section string table
+    if (lseek(fd, ehdr->e_shoff + (ehdr->e_shstrndx * sizeof(Elf64_Shdr)), SEEK_SET) == -1) {
+        print_error("Failed to seek section string table header", EIO);
+    }
+
+    if (read(fd, &shstrtab_hdr, sizeof(shstrtab_hdr)) != sizeof(shstrtab_hdr)) {
+        print_error("Failed to read section string table header", EIO);
+    }
+
+    // Read section name string table
+    char *section_names = malloc(shstrtab_hdr.sh_size);
+    if (!section_names) {
+        print_error("Failed to allocate memory for section names", ENOMEM);
+    }
+
+    if (lseek(fd, shstrtab_hdr.sh_offset, SEEK_SET) == -1) {
+        print_error("Failed to seek to section name string table", EIO);
+    }
+
+    if (read(fd, section_names, shstrtab_hdr.sh_size) != shstrtab_hdr.sh_size) {
+        free(section_names);
+        print_error("Failed to read section name string table", EIO);
+    }
+
+    // Locate the desired section
+    for (int i = 0; i < ehdr->e_shnum; i++) {
+        if (lseek(fd, ehdr->e_shoff + (i * sizeof(Elf64_Shdr)), SEEK_SET) == -1) {
+            free(section_names);
+            print_error("Failed to seek section header", EIO);
+        }
+
+        if (read(fd, &shdr, sizeof(shdr)) != sizeof(shdr)) {
+            free(section_names);
+            print_error("Failed to read section header", EIO);
+        }
+
+        if (strcmp(section_name, section_names + shdr.sh_name) == 0) {
+            free(section_names);
+            if (!(shdr.sh_flags & SHF_EXECINSTR)) {
+                print_error("Section is not executable", EINVAL);
+            }
+            return (void *)shdr.sh_addr;
+        }
+    }
+
+    free(section_names);
+    print_error("Section not found", EINVAL);
+    return NULL; // Unreachable, to suppress warnings
+}
+
+/* Entry point */
 int main(int argc, char *argv[]) {
     if (argc != 3) {
-        error("Usage: ./elf64-loader <source-elf64-file> <section-name>\n", EINVAL);
+        print_error("Usage: ./elf64-loader <source-elf64-file> <section-name>", EINVAL);
     }
 
     const char *filename = argv[1];
     const char *section_name = argv[2];
 
-    // Open ELF file
     int fd = open(filename, O_RDONLY);
     if (fd < 0) {
-        error("Failed to open file\n", ENOENT);
+        print_error("Failed to open file", ENOENT);
     }
 
-    // Read ELF header
     Elf64_Ehdr ehdr;
-    if (read_data(fd, &ehdr, sizeof(ehdr), 0) != sizeof(ehdr)) {
+    if (read(fd, &ehdr, sizeof(ehdr)) != sizeof(ehdr)) {
         close(fd);
-        error("Failed to read ELF header\n", EIO);
+        print_error("Failed to read ELF header", EIO);
     }
 
-    // Validate ELF magic number
-    if (memcmp(ehdr.e_ident, ELFMAG, SELFMAG) != 0 || ehdr.e_ident[EI_CLASS] != ELFCLASS64) {
+    if (!validate_elf_header(&ehdr)) {
         close(fd);
-        error("Invalid ELF file\n", EINVAL);
+        print_error("Invalid ELF64 file", EINVAL);
     }
 
-    // Load segments into memory
-    load_segments(fd, &ehdr);
+    load_program_segments(fd, &ehdr);
 
-    // Locate the target section
-    Elf64_Addr section_addr = locate_section(fd, &ehdr, section_name);
+    void *section_address = find_section(fd, &ehdr, section_name);
 
-    // Close file descriptor
     close(fd);
 
-    // Transfer control to the section
-    void (*entry_point)(void) = (void (*)(void))section_addr;
+    // Transfer control
+    void (*entry_point)(void) = section_address;
     entry_point();
 
     return 0;
