@@ -143,10 +143,15 @@ int main(int argc, char *argv[]) {
         close(fd);
         return err;
     }
-
+	if (!(target_shdr.sh_flags & SHF_EXECINSTR)) {
+        close(fd);
+        return EINVAL;
+    }
+    transfer_control(target_shdr.sh_addr);
+	
     close(fd);
 
-    transfer_control(target_shdr.sh_addr);
+
     return 0;
 }
-<code/>
+
