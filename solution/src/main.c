@@ -46,12 +46,17 @@ int load_program_segments(int fd, Elf64_Ehdr *ehdr) {
 
         // Adjust the memory size if needed (page size alignment)
         Elf64_Xword aligned_mem_size = (phdr.p_memsz + (PAGE_SIZE - 1)) & ~(PAGE_SIZE - 1);
-        void *mapped_mem = mmap((void *)phdr.p_vaddr, aligned_mem_size, 
+        Elf64_Addr aligned_vaddr = phdr.p_vaddr & ~(PAGE_SIZE - 1);
+        Elf64_Off aligned_offset = phdr.p_offset & ~(PAGE_SIZE - 1);
+
+        void *mapped_mem = mmap((void *)aligned_vaddr, aligned_mem_size,
                                 (phdr.p_flags & PF_X ? PROT_EXEC : 0) | 
                                 (phdr.p_flags & PF_R ? PROT_READ : 0) | 
-                                (phdr.p_flags & PF_W ? PROT_WRITE : 0), 
-                                MAP_PRIVATE | MAP_FIXED | MAP_FIXED_NOREPLACE, fd, phdr.p_offset);
+                                (phdr.p_flags & PF_W ? PROT_WRITE : 0),
+                                MAP_PRIVATE | MAP_FIXED, fd, aligned_offset);
+        
         if (mapped_mem == MAP_FAILED) {
+            perror("mmap failed");
             return EIO;
         }
     }
